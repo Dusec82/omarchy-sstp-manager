@@ -6,7 +6,7 @@ A third-party Quickshell plugin for managing `sstp-client` VPN connections from 
 
 1. Install dependencies: `sudo pacman -S sstp-client ppp python`.
 2. Install and enable the plugin: `omarchy plugin add https://github.com/Dusec82/omarchy-sstp-manager --enable`.
-3. From the installed plugin directory, run `sudo ./scripts/install.sh`. This installs the privileged helper, Polkit policy, and PPP route hooks. Run it again after updates to `scripts/privileged.py` or `scripts/route-hook.py`.
+3. From the installed plugin directory, run `sudo ./scripts/install.sh`. This installs the privileged helper, Polkit policy, and PPP route hooks.
 4. Restart the shell if needed: `omarchy-restart-shell`. Place the widget with `omarchy bar move org.dusec.sstp-manager --section right`.
 
 Profiles are stored in `~/.config/omarchy/sstp-manager/profiles/` with directory permissions `0700` and file permissions `0600`. The first connect, disconnect, or test may prompt for Polkit authentication. Runtime connection logs are stored in `/run/omarchy-sstp-manager/` and are removed at reboot.
@@ -31,7 +31,7 @@ The helper passes PPP `noauth` for client mode. This disables server authenticat
 
 1. Установите зависимости: `sudo pacman -S sstp-client ppp python`.
 2. Установите и включите плагин: `omarchy plugin add https://github.com/Dusec82/omarchy-sstp-manager --enable`.
-3. В каталоге установленного плагина выполните `sudo ./scripts/install.sh`. Скрипт устанавливает привилегированный helper, правило Polkit и PPP hooks для маршрутов. Повторно запустите его после обновления `scripts/privileged.py` или `scripts/route-hook.py`.
+3. В каталоге установленного плагина выполните `sudo ./scripts/install.sh`. Скрипт устанавливает привилегированный helper, правило Polkit и PPP hooks для маршрутов.
 4. При необходимости перезапустите оболочку: `omarchy-restart-shell`. Переместить виджет можно командой `omarchy bar move org.dusec.sstp-manager --section right`.
 
 Профили хранятся в `~/.config/omarchy/sstp-manager/profiles/`: права каталога — `0700`, файлов — `0600`. При первом подключении, отключении или тестировании Polkit может запросить подтверждение администратора. Текущие журналы соединения находятся в `/run/omarchy-sstp-manager/` и удаляются при перезагрузке.
