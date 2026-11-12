@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "org.dusec.sstp-manager",
+  "name": "SSTP Manager",
+  "version": "0.1.0",
+  "author": "dusec",
+  "license": "MIT",
+  "description": "Graphical manager for sstp-client VPN connections on Omarchy",
+  "kinds": ["bar-widget", "panel", "service"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "SSTP",
+    "description": "Manage SSTP VPN connections",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

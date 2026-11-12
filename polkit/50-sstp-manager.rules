@@ -1,0 +1,8 @@
+// Restrict the authentication exception to the installed SSTP Manager helper.
+// The helper independently validates every operation, profile id and profile.
+polkit.addRule(function(action, subject) {
+  if (action.id === "org.freedesktop.policykit.exec" &&
+      action.lookup("program") === "/usr/lib/omarchy-sstp-manager/privileged.py") {
+    return polkit.Result.AUTH_ADMIN_KEEP;
+  }
+});
