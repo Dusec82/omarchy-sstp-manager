@@ -5,7 +5,7 @@ A third-party Quickshell plugin for managing `sstp-client` profiles from the Oma
 ## Установка
 
 1. Install dependencies: `sudo pacman -S sstp-client ppp python`.
-2. Install the plugin from its Git repository: `omarchy plugin add https://github.com/dusec/omarchy-sstp-manager --enable`.
+2. Install the plugin from its Git repository: `omarchy plugin add https://github.com/Dusec82/omarchy-sstp-manager --enable`.
 3. From the installed plugin checkout, run `sudo ./scripts/install.sh`. This installs the root helper and a Polkit rule restricted to that helper path. Re-run it after plugin updates that change privileged helpers.
 4. Restart the shell with `omarchy-restart-shell` if the widget does not appear. Use `omarchy bar move org.dusec.sstp-manager --section right` to place it.
 
@@ -30,7 +30,7 @@ Run `omarchy plugin validate .` from the repository root. The helper uses Python
 ## Installation
 
 1. Install dependencies: `sudo pacman -S sstp-client ppp python`.
-2. Install from Git: `omarchy plugin add https://github.com/dusec/omarchy-sstp-manager --enable`.
+2. Install from Git: `omarchy plugin add https://github.com/Dusec82/omarchy-sstp-manager --enable`.
 3. From the installed checkout, run `sudo ./scripts/install.sh`. It installs the root helper and narrowly scoped Polkit rule. Re-run after updates to privileged helpers.
 4. If the widget does not appear, run `omarchy-restart-shell`. Place it with `omarchy bar move org.dusec.sstp-manager --section right`.
 
