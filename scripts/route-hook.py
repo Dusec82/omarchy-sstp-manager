@@ -10,6 +10,7 @@ import syslog
 from pathlib import Path
 
 STATE_DIR = Path("/run/omarchy-sstp-manager/routes")
+RUNTIME_DIR = STATE_DIR.parent
 TOKEN_RE = re.compile(r"^sstpm-([0-9]+)-([A-Za-z0-9_-]{1,48})-([a-f0-9]{24})$")
 IFACE_RE = re.compile(r"^ppp[0-9]+$")
 
@@ -52,6 +53,32 @@ def read_state(path):
     return value
 
 
+def update_runtime(uid, profile_id, values):
+    path = RUNTIME_DIR / (str(uid) + ".json")
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except FileNotFoundError:
+        log(syslog.LOG_WARNING, "runtime status file is missing for uid %d" % uid)
+        return
+    info = os.fstat(fd)
+    if info.st_uid != 0 or info.st_mode & 0o022:
+        os.close(fd)
+        raise RuntimeError("unsafe runtime status permissions")
+    with os.fdopen(fd, "r", encoding="utf-8") as stream:
+        status = json.load(stream)
+    if status.get("profileId") != profile_id:
+        return
+    status.update(values)
+    temporary = path.with_suffix(".tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        json.dump(status, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+    os.chmod(path, 0o644)
+
+
 def route_command(action, network, interface):
     parsed = ipaddress.ip_network(network, strict=False)
     family = "-6" if parsed.version == 6 else "-4"
@@ -87,6 +114,7 @@ def main():
     if mode == "up":
         state["interface"] = interface
         state["installed"] = []
+        state["errors"] = []
         atomic_write(state_path, state)
         for network in state["routes"]:
             result = route_command("add", network, interface)
@@ -96,7 +124,16 @@ def main():
                 log(syslog.LOG_INFO, "added %s dev %s" % (network, interface))
             else:
                 detail = (result.stderr or result.stdout).strip()[:240]
+                state["errors"].append("%s: %s" % (network, detail))
+                atomic_write(state_path, state)
                 log(syslog.LOG_ERR, "could not add %s dev %s: %s" % (network, interface, detail))
+        update_runtime(uid, profile_id, {
+            "pppInterface": interface,
+            "routeMode": state.get("routeMode", "split"),
+            "splitRoutes": state["routes"],
+            "installedRoutes": state["installed"],
+            "routeErrors": state["errors"],
+        })
         return 0
 
     state_interface = state.get("interface", "")
@@ -109,6 +146,7 @@ def main():
         else:
             detail = (result.stderr or result.stdout).strip()[:240]
             log(syslog.LOG_WARNING, "could not remove %s dev %s: %s" % (network, interface, detail))
+    update_runtime(uid, profile_id, {"pppInterface": "", "installedRoutes": []})
     state_path.unlink(missing_ok=True)
     return 0
 

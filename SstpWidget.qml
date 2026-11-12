@@ -16,7 +16,7 @@ Panel {
   property string omarchyPath: ""
   property var shell: null
   property var profiles: []
-  property var activeStatus: ({ state: "disconnected", profileId: "", ip: "", since: 0, message: "" })
+  property var activeStatus: ({ state: "disconnected", profileId: "", ip: "", pppInterface: "", since: 0, message: "" })
   property string selectedId: ""
   property bool editing: false
   property bool busy: false
@@ -24,7 +24,10 @@ Panel {
   property bool showLog: false
   property bool fullRouteDraft: false
   property string logText: ""
-  property string routeText: ""
+  property var routeTokens: []
+  property string routeInput: ""
+  property var routeDiagnostics: ({})
+  property bool routeDiagnosticsReady: false
   property string message: ""
   property string currentOperation: ""
   property var draft: ({ id: "", name: "", server: "", port: 443, username: "", password: "", certWarn: false, saveServerRoute: true, proxy: "", tlsVersion: "default", caCert: "", routeMode: "split", routes: [], pppOptions: ["require-mschap-v2", "refuse-eap", "usepeerdns", "noauth"], debugLogging: false, tlsExt: false })
@@ -37,7 +40,7 @@ Panel {
   function run(command, args) {
     if (workerPending) return
     workerPending = true
-    busy = command !== "status" && command !== "logs" && command !== "list"
+    busy = command !== "status" && command !== "logs" && command !== "list" && command !== "diagnostics"
     currentOperation = command
     worker.command = ["python3", pluginDir + "/scripts/backend.py", command].concat(args || [])
     worker.running = true
@@ -48,7 +51,9 @@ Panel {
     draft.password = ""
     draft.routes = draft.routes || []
     fullRouteDraft = draft.routeMode === "full"
-    routeText = draft.routes.join(", ")
+    routeTokens = draft.routes.slice()
+    routeInput = ""
+    routeDiagnosticsReady = false
     selectedId = item.id
     editing = true
     message = ""
@@ -58,19 +63,49 @@ Panel {
     selectedId = ""
     editing = true
     fullRouteDraft = false
-    routeText = ""
+    routeTokens = []
+    routeInput = ""
+    routeDiagnosticsReady = false
+  }
+  function addRoutes() {
+    var next = routeTokens.slice()
+    var values = routeInput.split(",")
+    for (var i = 0; i < values.length; i++) {
+      var value = values[i].trim()
+      if (!value || next.indexOf(value) >= 0) continue
+      if (next.length >= 32) {
+        message = "A profile can contain at most 32 work networks"
+        break
+      }
+      next.push(value)
+    }
+    routeTokens = next
+    routeInput = ""
+    routeDiagnosticsReady = false
+  }
+  function removeRoute(index) {
+    var next = routeTokens.slice()
+    if (index >= 0 && index < next.length) next.splice(index, 1)
+    routeTokens = next
+    routeDiagnosticsReady = false
   }
   function saveProfile() {
     var id = selectedId || "p" + Date.now().toString(36)
     draft.id = id
     draft.routeMode = fullRouteDraft ? "full" : "split"
-    draft.routes = routeText.split(",").map(function(item) { return item.trim() }).filter(function(item) { return item !== "" })
+    draft.routes = routeTokens.slice()
     run("save", [id, JSON.stringify(draft)])
   }
-  function connectProfile(id) { selectedId = id; run("connect", [id]) }
+  function connectProfile(id) { selectedId = id; routeDiagnosticsReady = false; run("connect", [id]) }
   function loadLog() { run("logs", []) }
-  function activateOperation(cmd, id) { run(cmd, [id]) }
-
+  function clearLog() { logText = ""; run("clear-logs", []) }
+  function activateOperation(cmd, id) {
+    if (cmd === "disconnect") {
+      routeDiagnosticsReady = false
+      routeDiagnostics = ({})
+    }
+    run(cmd, [id])
+  }
   Component.onCompleted: refresh()
 
   Process {
@@ -89,12 +124,23 @@ Panel {
       } else if (root.currentOperation === "list") {
         try { root.profiles = JSON.parse(output || "[]") } catch (_) { root.message = "Could not read profiles" }
       } else if (root.currentOperation === "status") {
-        try { root.activeStatus = JSON.parse(output) } catch (_) {}
+        try {
+          root.activeStatus = JSON.parse(output)
+          if (root.activeStatus.state !== "connected") {
+            root.routeDiagnosticsReady = false
+            root.routeDiagnostics = ({})
+          }
+        } catch (_) {}
+      } else if (root.currentOperation === "diagnostics") {
+        try { root.routeDiagnostics = JSON.parse(output); root.routeDiagnosticsReady = true } catch (_) { root.message = "Could not read route diagnostics" }
       } else if (root.currentOperation === "logs") root.logText = output
+      else if (root.currentOperation === "clear-logs") { root.logText = ""; root.message = "" }
       else {
-        root.message = output
-        root.editing = false
-        root.refresh()
+        root.message = ""
+        if (root.currentOperation === "save" || root.currentOperation === "delete" || root.currentOperation === "duplicate") {
+          root.editing = false
+          root.refresh()
+        }
       }
       if (root.currentOperation === "connect" || root.currentOperation === "disconnect") statusTimer.restart()
     }
@@ -130,26 +176,33 @@ Panel {
     contentHeight: popup.fittedContentHeight(popup.loadedContentHeight, Style.space(700))
     content: PanelKeyCatcher {
       anchors.fill: parent
-      implicitHeight: contentColumn.implicitHeight
-      ColumnLayout {
-        id: contentColumn
+      implicitHeight: contentColumn.implicitHeight + Style.space(24)
+      ScrollView {
+        id: panelScroll
         anchors.fill: parent
-        anchors.margins: Style.space(12)
-        spacing: Style.space(8)
-        Layout.minimumWidth: 0
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: contentColumn.implicitHeight > height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
 
-        RowLayout {
-          Layout.fillWidth: true
-          Layout.minimumWidth: 0
-          Text { text: "SSTP Manager"; textFormat: Text.PlainText; color: root.barForeground; font.pixelSize: 18; font.bold: true; Layout.fillWidth: true }
-          Button { text: "+ Add"; onClicked: root.newProfile() }
-        }
+        ColumnLayout {
+          id: contentColumn
+          x: Style.space(12)
+          y: Style.space(12)
+          width: Math.max(0, panelScroll.availableWidth - Style.space(24))
+          spacing: Style.space(8)
+
+          RowLayout {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            Text { text: "SSTP Manager"; textFormat: Text.PlainText; color: root.barForeground; font.pixelSize: 18; font.bold: true; Layout.fillWidth: true }
+            Button { text: "+ Add"; onClicked: root.newProfile() }
+          }
         Text {
           Layout.fillWidth: true
           Layout.minimumWidth: 0
           textFormat: Text.PlainText
           color: root.activeStatus.state === "connected" ? Commons.Color.accent : root.dim
-          text: root.activeStatus.state === "connected" ? "Connected · " + (root.activeStatus.profileName || "") + (root.activeStatus.ip ? " · " + root.activeStatus.ip : "") + root.dnsText + " · " + Backend.elapsedSince(root.activeStatus.since) : root.activeStatus.state === "connecting" ? "Connecting…" : root.activeStatus.state === "error" ? (root.activeStatus.message || "Connection error") : "Disconnected"
+          text: root.activeStatus.state === "connected" ? "Connected · " + (root.activeStatus.profileName || "") + (root.activeStatus.ip ? " · " + root.activeStatus.ip : "") + (root.activeStatus.pppInterface ? " · " + root.activeStatus.pppInterface : "") + root.dnsText + " · " + Backend.elapsedSince(root.activeStatus.since) : root.activeStatus.state === "connecting" ? "Connecting…" : root.activeStatus.state === "error" ? (root.activeStatus.message || "Connection error") : "Disconnected"
           wrapMode: Text.Wrap
         }
         Button {
@@ -158,6 +211,65 @@ Panel {
           enabled: !root.busy
           text: "Disconnect active profile"
           onClicked: root.activateOperation("disconnect", String(root.activeStatus.profileId || "active"))
+        }
+        Button {
+          visible: root.activeStatus.state === "connected"
+          enabled: !root.busy
+          text: "Check routes"
+          onClicked: { root.message = ""; root.routeDiagnosticsReady = false; root.run("diagnostics", []) }
+        }
+        Rectangle {
+          visible: root.routeDiagnosticsReady
+          Layout.fillWidth: true
+          Layout.minimumWidth: 0
+          implicitHeight: diagnosticsColumn.implicitHeight + Style.space(16)
+          radius: Style.cornerRadius
+          color: Qt.darker(root.barForeground, 1.9)
+          ColumnLayout {
+            id: diagnosticsColumn
+            anchors.fill: parent
+            anchors.margins: Style.space(8)
+            spacing: Style.space(4)
+            Text {
+              Layout.fillWidth: true
+              textFormat: Text.PlainText
+              color: root.barForeground
+              font.bold: true
+              text: "Route check · " + String(root.routeDiagnostics.pppInterface || "")
+            }
+            Text {
+              Layout.fillWidth: true
+              Layout.minimumWidth: 0
+              textFormat: Text.PlainText
+              wrapMode: Text.Wrap
+              color: root.routeDiagnostics.internetOk ? Commons.Color.accent : Commons.Color.urgent
+              text: "Internet destination 1.1.1.1 → " + (root.routeDiagnostics.internetInterface || "no route") + (root.routeDiagnostics.internetExpectedOnVpn ? " (VPN expected)" : " (normal route expected)")
+            }
+            Repeater {
+              model: root.routeDiagnostics.routes || []
+              delegate: Text {
+                required property var modelData
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                textFormat: Text.PlainText
+                wrapMode: Text.Wrap
+                color: modelData.ok && modelData.installed ? Commons.Color.accent : Commons.Color.urgent
+                text: modelData.network + " → " + (modelData.interface || "no route") + (modelData.installed ? " · installed" : " · missing")
+              }
+            }
+            Repeater {
+              model: root.routeDiagnostics.routeErrors || []
+              delegate: Text {
+                required property string modelData
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                textFormat: Text.PlainText
+                wrapMode: Text.Wrap
+                color: Commons.Color.urgent
+                text: modelData
+              }
+            }
+          }
         }
         Text { Layout.fillWidth: true; Layout.minimumWidth: 0; visible: root.message !== ""; textFormat: Text.PlainText; color: Commons.Color.urgent; text: root.message; wrapMode: Text.Wrap }
 
@@ -229,20 +341,70 @@ Panel {
           Text {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
+            Layout.maximumWidth: popup.contentWidth - Style.space(24)
             visible: !root.fullRouteDraft
-            text: "Only these work networks use SSTP; other traffic keeps its normal route."
+            text: "Only these work networks use SSTP; other traffic keeps its normal route. Add CIDRs one by one, or paste several separated by commas."
             textFormat: Text.PlainText
             color: root.dim
             wrapMode: Text.Wrap
           }
-          TextField {
+          Flow {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            Layout.maximumWidth: popup.contentWidth
+            Layout.preferredHeight: childrenRect.height
+            visible: !root.fullRouteDraft
+            spacing: Style.space(6)
+            Repeater {
+              model: root.routeTokens
+              delegate: Rectangle {
+                required property int index
+                required property string modelData
+                radius: height / 2
+                color: Qt.darker(root.barForeground, 1.75)
+                implicitHeight: Style.space(30)
+                implicitWidth: chipRow.implicitWidth + Style.space(12)
+                RowLayout {
+                  id: chipRow
+                  anchors.fill: parent
+                  anchors.leftMargin: Style.space(8)
+                  anchors.rightMargin: Style.space(2)
+                  spacing: Style.space(4)
+                  Text {
+                    Layout.maximumWidth: popup.contentWidth - Style.space(64)
+                    text: modelData
+                    textFormat: Text.PlainText
+                    elide: Text.ElideMiddle
+                    color: root.barForeground
+                  }
+                  ToolButton {
+                    text: "×"
+                    Accessible.name: "Remove " + modelData
+                    onClicked: root.removeRoute(index)
+                  }
+                }
+              }
+            }
+          }
+          RowLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.maximumWidth: popup.contentWidth
             visible: !root.fullRouteDraft
-            placeholderText: "Work networks (CIDR, comma-separated)"
-            text: root.routeText
-            onTextChanged: root.routeText = text
+            TextField {
+              id: routeInputField
+              Layout.fillWidth: true
+              Layout.minimumWidth: 0
+              placeholderText: "Work network, e.g. 192.168.1.0/24"
+              text: root.routeInput
+              onTextChanged: root.routeInput = text
+              onAccepted: root.addRoutes()
+            }
+            Button {
+              text: "Add"
+              enabled: root.routeInput.trim() !== ""
+              onClicked: root.addRoutes()
+            }
           }
           RowLayout {
             Layout.fillWidth: true
@@ -275,12 +437,25 @@ Panel {
             }
           }
         }
-        ScrollView {
+        RowLayout {
+          visible: root.showLog
+          Layout.fillWidth: true
+          Layout.minimumWidth: 0
+          Text { text: "Connection log"; color: root.dim; Layout.fillWidth: true }
+          Button { text: "Clear log"; enabled: !root.busy; onClicked: root.clearLog() }
+        }
+        TextArea {
           Layout.fillWidth: true
           Layout.minimumWidth: 0
           Layout.preferredHeight: root.showLog ? 130 : 0
           visible: root.showLog
-          TextArea { text: root.logText; readOnly: true; wrapMode: TextEdit.Wrap; textFormat: TextEdit.PlainText; color: root.barForeground; selectByMouse: true }
+          text: root.logText
+          readOnly: true
+          wrapMode: TextEdit.Wrap
+          textFormat: TextEdit.PlainText
+          color: root.barForeground
+          selectByMouse: true
+        }
         }
       }
     }

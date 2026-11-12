@@ -77,7 +77,7 @@ def main():
             pid_file.unlink(missing_ok=True)
         except (FileNotFoundError, ProcessLookupError, ValueError):
             pid_file.unlink(missing_ok=True)
-        state_file.write_text(json.dumps({"state": "disconnected", "profileId": "", "profileName": "", "ip": "", "since": 0, "message": ""}))
+        state_file.write_text(json.dumps({"state": "disconnected", "profileId": "", "profileName": "", "ip": "", "pppInterface": "", "splitRoutes": [], "installedRoutes": [], "routeErrors": [], "since": 0, "message": ""}))
         os.chmod(state_file, 0o644)
         print("Disconnected")
         return
@@ -169,35 +169,35 @@ def main():
             pid_file.unlink(missing_ok=True)
         except ProcessLookupError:
             pid_file.unlink(missing_ok=True)
-    route_state = None
-    if routes:
-        ROUTE_STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(ROUTE_STATE_DIR, 0o700)
-        route_token = "sstpm-%d-%s-%s" % (uid, ident, secrets.token_hex(12))
-        args.extend(["ipparam", route_token])
-        route_state = ROUTE_STATE_DIR / (route_token + ".json")
-        write_route_state(route_state, {
-            "uid": uid,
-            "profileId": ident,
-            "routes": routes,
-            "interface": "",
-            "installed": [],
-        })
+    ROUTE_STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(ROUTE_STATE_DIR, 0o700)
+    route_token = "sstpm-%d-%s-%s" % (uid, ident, secrets.token_hex(12))
+    args.extend(["ipparam", route_token])
+    route_state = ROUTE_STATE_DIR / (route_token + ".json")
+    write_route_state(route_state, {
+        "uid": uid,
+        "profileId": ident,
+        "routeMode": route_mode,
+        "routes": routes,
+        "interface": "",
+        "installed": [],
+        "errors": [],
+    })
     try:
         child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=fd, stderr=fd, start_new_session=True, close_fds=True)
     except Exception:
-        if route_state:
-            route_state.unlink(missing_ok=True)
+        route_state.unlink(missing_ok=True)
         os.close(fd)
         raise
     os.close(fd)
     pid_file.write_text(str(child.pid))
     os.chmod(pid_file, 0o644)
-    state_file.write_text(json.dumps({"state": "connecting", "profileId": ident, "profileName": str(profile.get("name", "SSTP"))[:80], "ip": "", "since": int(time.time()), "message": ""}))
+    state_file.write_text(json.dumps({"state": "connecting", "profileId": ident, "profileName": str(profile.get("name", "SSTP"))[:80], "ip": "", "pppInterface": "", "routeMode": route_mode, "splitRoutes": routes, "installedRoutes": [], "routeErrors": [], "since": int(time.time()), "message": ""}))
     os.chmod(state_file, 0o644)
     time.sleep(0.7)
     if child.poll() is not None:
         pid_file.unlink(missing_ok=True)
+        route_state.unlink(missing_ok=True)
         raise RuntimeError("sstpc exited during startup; see connection log")
     print("Connection started")
 

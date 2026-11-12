@@ -1,53 +1,49 @@
 # SSTP Manager for Omarchy
 
-A third-party Quickshell plugin for managing `sstp-client` profiles from the Omarchy bar. The bar widget, panel, and background service load inside the existing `omarchy-shell`; the plugin never starts another Quickshell process.
-
-## Установка
-
-1. Install dependencies: `sudo pacman -S sstp-client ppp python`.
-2. Install the plugin from its Git repository: `omarchy plugin add https://github.com/Dusec82/omarchy-sstp-manager --enable`.
-3. From the installed plugin checkout, run `sudo ./scripts/install.sh`. This installs the root helper, narrowly scoped Polkit rule, and PPP up/down hooks used by split routes. Re-run it after plugin updates that change privileged helpers or hooks.
-4. Restart the shell with `omarchy-restart-shell` if the widget does not appear. Use `omarchy bar move org.dusec.sstp-manager --section right` to place it.
-
-The first connection may prompt for administrator authentication through Polkit. Profile files are stored in `~/.config/omarchy/sstp-manager/profiles/` with directory mode `0700` and file mode `0600`. The helper uses the `PKEXEC_UID` account and validates the profile and all forwarded PPP options. Logs are kept under `/run/omarchy-sstp-manager/` until reboot.
-
-## Использование
-
-Click the SSTP bar icon to add, edit, duplicate, remove, test, connect, and disconnect profiles. The panel shows the current state, assigned IPv4 address (when detected on a `ppp*` interface), uptime, and recent connection log. For split tunneling, leave **Route all traffic through VPN** unchecked and enter work networks as comma-separated CIDRs, for example `192.168.1.0/24, 10.20.0.0/16`. Commas are the separators; spaces around them are allowed, but spaces alone do not separate networks. Use `/32` for a single IPv4 host. PPP up/down hooks install these routes on the VPN interface and remove them when it disconnects; all other traffic keeps its existing route. Enable **Route all traffic through VPN** only when the VPN server provides Internet forwarding. The optional server route, certificate warning, CA file, HTTP proxy, and a curated PPP option set are supported.
-
-For troubleshooting, enable **Detailed SSTP/PPP logs** in a profile, reconnect, and watch `tail -F /run/omarchy-sstp-manager/$(id -u).log`. Disable verbose logging after troubleshooting.
-
-The helper adds PPP `noauth` for client mode. This prevents pppd from demanding that the VPN server authenticate itself at the PPP layer; SSTP server identity is still checked using TLS certificates, and the profile credentials are still sent for client authentication.
-
-If the server requires TLS hostname routing, enable **Send TLS hostname extension** (`sstpc --tls-ext`) in the profile. This is independent of TLS protocol-version selection, which the installed `sstpc` CLI does not expose.
-
-`sstpc` 1.0.20's documented command line has no custom-port or TLS-protocol-version switch. The form retains the standard port field, but connection attempts currently accept only port 443; TLS protocol selection is not exposed. Do not enable `--cert-warn` unless you understand that it weakens server certificate verification. Passwords are protected at rest, though `sstpc` requires its password as a process argument and local process viewers may briefly see it.
-
-## Разработка
-
-Run `omarchy plugin validate .` from the repository root. The helper uses Python's standard library; UI code uses the Omarchy `qs.Ui`, `qs.Commons`, and Quickshell APIs already present in `omarchy-shell`. QML components remain `Item`-based plugin entries and use the host-injected `manifest`, `omarchyPath`, and `shell` values. Never launch `quickshell` or `qs` from the plugin.
+A third-party Quickshell plugin for managing `sstp-client` VPN connections from the Omarchy bar. The widget, panel, and service run inside the existing `omarchy-shell`; the plugin does not start another Quickshell process.
 
 ## Installation
 
 1. Install dependencies: `sudo pacman -S sstp-client ppp python`.
-2. Install from Git: `omarchy plugin add https://github.com/Dusec82/omarchy-sstp-manager --enable`.
-3. From the installed checkout, run `sudo ./scripts/install.sh`. It installs the root helper, narrowly scoped Polkit rule, and PPP up/down route hooks. Re-run after updates to helper or hook scripts.
-4. If the widget does not appear, run `omarchy-restart-shell`. Place it with `omarchy bar move org.dusec.sstp-manager --section right`.
+2. Install and enable the plugin: `omarchy plugin add https://github.com/Dusec82/omarchy-sstp-manager --enable`.
+3. From the installed plugin directory, run `sudo ./scripts/install.sh`. This installs the privileged helper, Polkit policy, and PPP route hooks. Run it again after updates to `scripts/privileged.py` or `scripts/route-hook.py`.
+4. Restart the shell if needed: `omarchy-restart-shell`. Place the widget with `omarchy bar move org.dusec.sstp-manager --section right`.
 
-Profile data lives in `~/.config/omarchy/sstp-manager/profiles/`, protected by directory permissions `0700` and file permissions `0600`. Runtime logs are stored in `/run/omarchy-sstp-manager/` and disappear at reboot.
+Profiles are stored in `~/.config/omarchy/sstp-manager/profiles/` with directory permissions `0700` and file permissions `0600`. The first connect, disconnect, or test may prompt for Polkit authentication. Runtime connection logs are stored in `/run/omarchy-sstp-manager/` and are removed at reboot.
 
 ## Usage
 
-Click the SSTP icon to create, edit, duplicate, delete, test, connect, or disconnect profiles. The panel displays state, the IPv4 address found on a `ppp*` interface, uptime, and recent logs. For split tunneling, leave **Route all traffic through VPN** unchecked and enter work networks as comma-separated CIDRs (for example, `192.168.1.0/24, 10.20.0.0/16`). Separate networks with commas; optional spaces around commas are ignored, and spaces alone are not separators. Use `/32` for a single IPv4 host. The installed PPP hooks add those networks to the VPN interface and remove them on disconnect, while ordinary Internet traffic retains its existing route. Use full-tunnel mode only when the VPN server is configured to forward Internet traffic. The helper also supports server-route preservation, certificate-warning mode, a CA certificate, HTTP proxy, and a curated set of PPP options.
+Click the SSTP bar icon to add, edit, duplicate, delete, test, connect, or disconnect profiles. The panel shows connection state, the VPN IPv4 address and interface when detected, DNS, uptime, and recent logs.
 
-For troubleshooting, enable **Detailed SSTP/PPP logs** in the profile, reconnect, and watch `tail -F /run/omarchy-sstp-manager/$(id -u).log`. Turn verbose logging off after troubleshooting.
+For split tunneling, leave **Route all traffic through VPN** unchecked and add work networks as CIDR ranges, for example `192.168.1.0/24` and `10.20.0.0/16`. Add ranges one at a time or enter several separated by commas; spaces alone do not separate them. Use `/32` for one IPv4 host. PPP hooks install these routes on the VPN interface and remove them when it disconnects. Other traffic keeps its normal route. **Check routes** reports whether the configured work routes use PPP and whether Internet traffic follows the selected route mode.
 
-The helper always passes PPP `noauth` in client mode. This disables the server-authentication requirement at the PPP layer; SSTP certificate verification still checks the server, and the profile credentials still authenticate the client.
+Enable **Route all traffic through VPN** only if the VPN server forwards Internet traffic. The profile also supports server-route preservation, TLS hostname extension, certificate warning mode, a CA certificate, an HTTP proxy, detailed connection logs, and a curated set of PPP options. Only port 443 is currently supported by the installed `sstpc` command line; TLS protocol version selection is not exposed.
 
-The documented `sstpc` 1.0.20 command line does not provide a custom port or TLS protocol-version flag. The profile form includes the standard port field, but only port 443 can currently connect; TLS-version selection is not exposed. `--cert-warn` weakens certificate verification and should only be used when necessary. Passwords are protected at rest, but `sstpc` accepts passwords on its command line, where local process viewers may briefly see them.
+Use **View log** to show recent SSTP/PPP output and **Clear log** to empty the current runtime log. Logs are temporary and disappear at reboot. For troubleshooting, enable detailed logging in the profile, reconnect, and watch `tail -F /run/omarchy-sstp-manager/$(id -u).log`; disable detailed logging afterwards.
 
-For servers that route TLS by hostname, enable **Send TLS hostname extension** (`sstpc --tls-ext`) in the profile. This does not select a TLS protocol version.
+The helper passes PPP `noauth` for client mode. This disables server authentication at the PPP layer; SSTP server identity is still checked with TLS certificates, and profile credentials still authenticate the client. `--cert-warn` weakens certificate verification. Passwords are protected at rest, although `sstpc` receives its password as a process argument while connecting.
 
-## Development
+## Разработка
 
-Validate from the repository root with `omarchy plugin validate .`. Python helpers use only the standard library. The QML runs inside the existing shell using Omarchy's `qs.Ui`, `qs.Commons`, and Quickshell modules, and reads the shell-injected `manifest`, `omarchyPath`, and `shell` properties. Do not start another Quickshell process from the plugin.
+Запустите `omarchy plugin validate .` из корня репозитория. QML-код использует API Quickshell и компоненты Omarchy `qs.Ui` и `qs.Commons`. Плагин загружается в существующий `omarchy-shell` и не должен запускать отдельный процесс Quickshell.
+
+## Установка
+
+1. Установите зависимости: `sudo pacman -S sstp-client ppp python`.
+2. Установите и включите плагин: `omarchy plugin add https://github.com/Dusec82/omarchy-sstp-manager --enable`.
+3. В каталоге установленного плагина выполните `sudo ./scripts/install.sh`. Скрипт устанавливает привилегированный helper, правило Polkit и PPP hooks для маршрутов. Повторно запустите его после обновления `scripts/privileged.py` или `scripts/route-hook.py`.
+4. При необходимости перезапустите оболочку: `omarchy-restart-shell`. Переместить виджет можно командой `omarchy bar move org.dusec.sstp-manager --section right`.
+
+Профили хранятся в `~/.config/omarchy/sstp-manager/profiles/`: права каталога — `0700`, файлов — `0600`. При первом подключении, отключении или тестировании Polkit может запросить подтверждение администратора. Текущие журналы соединения находятся в `/run/omarchy-sstp-manager/` и удаляются при перезагрузке.
+
+## Использование
+
+Нажмите значок SSTP в панели, чтобы добавлять, изменять, дублировать и удалять профили, тестировать соединение, подключаться и отключаться. Панель показывает состояние соединения, IPv4-адрес и интерфейс VPN (если определены), DNS, время работы и журнал.
+
+Для split tunneling оставьте переключатель **Route all traffic through VPN** выключенным и добавьте рабочие сети в формате CIDR, например `192.168.1.0/24` и `10.20.0.0/16`. Подсети можно добавлять по одной или перечислить через запятую; одни пробелы разделителем не являются. Для одного IPv4-хоста используйте `/32`. PPP hooks добавляют маршруты через интерфейс VPN и удаляют их при отключении. Остальной трафик идёт обычным маршрутом. Кнопка **Check routes** показывает, направлены ли рабочие сети через PPP и соответствует ли маршрут в Интернет выбранному режиму.
+
+Включайте **Route all traffic through VPN**, только если VPN-сервер маршрутизирует трафик в Интернет. Профиль также поддерживает сохранение маршрута к серверу, TLS hostname extension, предупреждение о сертификате, CA-сертификат, HTTP proxy, подробные журналы и ограниченный список PPP-параметров. Установленная версия `sstpc` поддерживает только порт 443; выбрать версию TLS через командную строку нельзя.
+
+Нажмите **View log**, чтобы открыть последние сообщения SSTP/PPP, и **Clear log**, чтобы очистить текущий журнал. Журналы временные и удаляются при перезагрузке. Для диагностики включите подробный журнал в профиле, переподключитесь и наблюдайте за файлом командой `tail -F /run/omarchy-sstp-manager/$(id -u).log`; после диагностики отключите подробное логирование.
+
+Для клиентского режима helper передаёт PPP-параметр `noauth`. Это отключает проверку аутентификации сервера на уровне PPP; сертификат SSTP-сервера продолжает проверяться через TLS, а учётные данные профиля по-прежнему используются для аутентификации клиента. Параметр `--cert-warn` ослабляет проверку сертификата. Пароли защищены при хранении, но во время подключения `sstpc` получает пароль в аргументах процесса.

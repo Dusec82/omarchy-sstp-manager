@@ -4,6 +4,7 @@ import ipaddress
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -104,6 +105,26 @@ def read_profile(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def route_lookup(address):
+    network = ipaddress.ip_address(address)
+    family = "-6" if network.version == 6 else "-4"
+    result = subprocess.run(
+        ["/usr/bin/ip", "-j", family, "route", "get", str(network)],
+        text=True,
+        capture_output=True,
+        timeout=3,
+        check=False,
+    )
+    if result.returncode != 0:
+        return {"interface": "", "error": (result.stderr or result.stdout).strip()[:240]}
+    try:
+        rows = json.loads(result.stdout)
+        row = rows[0] if rows else {}
+        return {"interface": str(row.get("dev", "")), "gateway": str(row.get("gateway", ""))}
+    except (ValueError, TypeError, IndexError):
+        return {"interface": "", "error": "Could not parse ip route output"}
+
+
 def run():
     ensure_dirs()
     command = sys.argv[1] if len(sys.argv) > 1 else "list"
@@ -147,17 +168,20 @@ def run():
                 os.kill(pid, 0)
             except PermissionError:
                 pass
-            try:
-                links = json.loads(subprocess.check_output(["ip", "-j", "address"], text=True, timeout=2))
-                for link in links:
-                    if str(link.get("ifname", "")).startswith("ppp"):
+            interface = str(value.get("pppInterface", ""))
+            if re.fullmatch(r"ppp[0-9]+", interface):
+                try:
+                    links = json.loads(subprocess.check_output(["/usr/bin/ip", "-j", "address", "show", "dev", interface], text=True, timeout=2))
+                    for link in links:
+                        if link.get("ifname") != interface:
+                            continue
                         for addr in link.get("addr_info", []):
                             if addr.get("family") == "inet":
                                 value["ip"] = addr.get("local", "")
                                 value["state"] = "connected"
                                 break
-            except Exception:
-                pass
+                except Exception:
+                    pass
             dns = []
             for resolver in (Path("/etc/ppp/resolv.conf"), Path("/run/pppd/resolv.conf")):
                 try:
@@ -173,12 +197,70 @@ def run():
             print('{"state":"disconnected","profileId":"","ip":"","since":0,"message":""}')
         except ProcessLookupError:
             print('{"state":"disconnected","profileId":"","ip":"","since":0,"message":""}')
+    elif command == "diagnostics":
+        state = Path("/run/omarchy-sstp-manager") / (str(os.getuid()) + ".json")
+        pid_file = Path("/run/omarchy-sstp-manager") / (str(os.getuid()) + ".pid")
+        try:
+            value = json.loads(state.read_text(encoding="utf-8"))
+            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            os.kill(pid, 0)
+        except PermissionError:
+            pass
+        except (FileNotFoundError, ProcessLookupError, ValueError):
+            raise RuntimeError("SSTP is not connected; connect a profile before checking routes")
+        interface = str(value.get("pppInterface", ""))
+        if not re.fullmatch(r"ppp[0-9]+", interface):
+            raise RuntimeError("Waiting for the SSTP PPP interface; try route check again in a moment")
+        checks = []
+        for route in value.get("splitRoutes", []):
+            network = ipaddress.ip_network(route, strict=False)
+            offset = 2 if network.num_addresses > 3 else 1 if network.num_addresses > 2 else 0
+            probe = network.network_address + offset
+            actual = route_lookup(probe)
+            checks.append({
+                "network": str(network),
+                "probe": str(probe),
+                "interface": actual.get("interface", ""),
+                "ok": actual.get("interface", "") == interface,
+                "installed": str(network) in value.get("installedRoutes", []),
+                "error": actual.get("error", ""),
+            })
+        internet = route_lookup("1.1.1.1")
+        internet_interface = internet.get("interface", "")
+        internet_expected_on_vpn = value.get("routeMode") == "full"
+        value = {
+            "profileName": str(value.get("profileName", "SSTP")),
+            "routeMode": str(value.get("routeMode", "split")),
+            "pppInterface": interface,
+            "routes": checks,
+            "routeErrors": value.get("routeErrors", []),
+            "internetInterface": internet_interface,
+            "internetExpectedOnVpn": internet_expected_on_vpn,
+            "internetOk": bool(internet_interface) and ((internet_interface == interface) == internet_expected_on_vpn),
+            "internetRouteError": internet.get("error", ""),
+        }
+        print(json.dumps(value))
     elif command == "logs":
         try:
             log_path = Path("/run/omarchy-sstp-manager") / (str(os.getuid()) + ".log")
             print("".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines(True)[-100:]))
         except FileNotFoundError:
             print("No connection log yet.")
+    elif command == "clear-logs":
+        log_path = Path("/run/omarchy-sstp-manager") / (str(os.getuid()) + ".log")
+        try:
+            fd = os.open(log_path, os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0))
+        except FileNotFoundError:
+            print(json.dumps({"ok": True}))
+        else:
+            try:
+                metadata = os.fstat(fd)
+                if metadata.st_uid != os.getuid() or not stat.S_ISREG(metadata.st_mode):
+                    raise PermissionError("Connection log is not a regular file owned by this user")
+                os.ftruncate(fd, 0)
+            finally:
+                os.close(fd)
+            print(json.dumps({"ok": True}))
     elif command == "connect" or command == "disconnect" or command == "test":
         ident = sys.argv[2] if len(sys.argv) > 2 else ""
         profile_path(ident)
