@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Unprivileged profile and status store for SSTP Manager."""
+import ipaddress
 import json
 import os
 import re
@@ -11,7 +12,7 @@ BASE = Path.home() / ".config/omarchy/sstp-manager"
 PROFILES = BASE / "profiles"
 LOG = BASE / "sstp-manager.log"
 ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,48}$")
-ALLOWED = {"name", "server", "port", "username", "password", "certWarn", "saveServerRoute", "proxy", "tlsVersion", "caCert", "routeMode", "pppOptions", "debugLogging", "tlsExt"}
+ALLOWED = {"name", "server", "port", "username", "password", "certWarn", "saveServerRoute", "proxy", "tlsVersion", "caCert", "routeMode", "routes", "pppOptions", "debugLogging", "tlsExt"}
 
 
 def ensure_dirs():
@@ -51,6 +52,23 @@ def valid_profile(data):
     data["routeMode"] = data.get("routeMode", "split")
     if data["routeMode"] not in ("split", "full"):
         raise ValueError("Invalid route mode")
+    routes = data.get("routes", [])
+    if not isinstance(routes, list) or len(routes) > 32:
+        raise ValueError("Split routes must be a list of at most 32 CIDR networks")
+    clean_routes = []
+    for route in routes:
+        if not isinstance(route, str) or "/" not in route.strip():
+            raise ValueError("Split routes must use CIDR notation, such as 192.168.1.0/24")
+        try:
+            network = ipaddress.ip_network(route.strip(), strict=False)
+        except ValueError as error:
+            raise ValueError("Invalid split route: " + str(route)) from error
+        if network.prefixlen == 0:
+            raise ValueError("A /0 route would replace the default route; use full-tunnel mode instead")
+        clean_routes.append(str(network))
+    data["routes"] = list(dict.fromkeys(clean_routes))
+    if data["routeMode"] == "split" and not data["routes"]:
+        raise ValueError("Add at least one work network for split tunneling, or enable full-tunnel mode")
     allowed_ppp = {"require-mschap-v2", "refuse-eap", "usepeerdns", "defaultroute", "nodefaultroute", "noauth", "noipdefault", "noccp", "mtu"}
     opts = data.get("pppOptions", [])
     if not isinstance(opts, list):

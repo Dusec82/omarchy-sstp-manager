@@ -22,10 +22,12 @@ Panel {
   property bool busy: false
   property bool workerPending: false
   property bool showLog: false
+  property bool fullRouteDraft: false
   property string logText: ""
+  property string routeText: ""
   property string message: ""
   property string currentOperation: ""
-  property var draft: ({ id: "", name: "", server: "", port: 443, username: "", password: "", certWarn: false, saveServerRoute: true, proxy: "", tlsVersion: "default", caCert: "", routeMode: "split", pppOptions: ["require-mschap-v2", "refuse-eap", "usepeerdns", "noauth"], debugLogging: false, tlsExt: false })
+  property var draft: ({ id: "", name: "", server: "", port: 443, username: "", password: "", certWarn: false, saveServerRoute: true, proxy: "", tlsVersion: "default", caCert: "", routeMode: "split", routes: [], pppOptions: ["require-mschap-v2", "refuse-eap", "usepeerdns", "noauth"], debugLogging: false, tlsExt: false })
   readonly property string pluginDir: Quickshell.env("HOME") + "/.config/omarchy/plugins/" + String(manifest.id || "org.dusec.sstp-manager")
   readonly property color dim: Qt.darker(barForeground, 1.6)
   readonly property string dnsText: activeStatus.dns && activeStatus.dns.length > 0 ? " · DNS " + activeStatus.dns.join(", ") : ""
@@ -44,18 +46,25 @@ Panel {
   function editProfile(item) {
     draft = JSON.parse(JSON.stringify(item))
     draft.password = ""
+    draft.routes = draft.routes || []
+    fullRouteDraft = draft.routeMode === "full"
+    routeText = draft.routes.join(", ")
     selectedId = item.id
     editing = true
     message = ""
   }
   function newProfile() {
-    draft = ({ id: "", name: "", server: "", port: 443, username: "", password: "", certWarn: false, saveServerRoute: true, proxy: "", tlsVersion: "default", caCert: "", routeMode: "split", pppOptions: ["require-mschap-v2", "refuse-eap", "usepeerdns", "noauth"], debugLogging: false, tlsExt: false })
+    draft = ({ id: "", name: "", server: "", port: 443, username: "", password: "", certWarn: false, saveServerRoute: true, proxy: "", tlsVersion: "default", caCert: "", routeMode: "split", routes: [], pppOptions: ["require-mschap-v2", "refuse-eap", "usepeerdns", "noauth"], debugLogging: false, tlsExt: false })
     selectedId = ""
     editing = true
+    fullRouteDraft = false
+    routeText = ""
   }
   function saveProfile() {
     var id = selectedId || "p" + Date.now().toString(36)
     draft.id = id
+    draft.routeMode = fullRouteDraft ? "full" : "split"
+    draft.routes = routeText.split(",").map(function(item) { return item.trim() }).filter(function(item) { return item !== "" })
     run("save", [id, JSON.stringify(draft)])
   }
   function connectProfile(id) { selectedId = id; run("connect", [id]) }
@@ -216,7 +225,25 @@ Panel {
           CheckBox { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: popup.contentWidth; text: "Detailed connection logs"; checked: root.draft.debugLogging === true; onToggled: root.draft.debugLogging = checked }
           CheckBox { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: popup.contentWidth; text: "Send TLS hostname extension (--tls-ext)"; checked: root.draft.tlsExt; onToggled: root.draft.tlsExt = checked }
           CheckBox { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: popup.contentWidth; text: "Preserve a route to the VPN server"; checked: root.draft.saveServerRoute; onToggled: root.draft.saveServerRoute = checked }
-          CheckBox { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: popup.contentWidth; text: "Route all traffic through VPN"; checked: root.draft.routeMode === "full"; onToggled: root.draft.routeMode = checked ? "full" : "split" }
+          CheckBox { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.maximumWidth: popup.contentWidth; text: "Route all traffic through VPN"; checked: root.fullRouteDraft; onToggled: root.fullRouteDraft = checked }
+          Text {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            visible: !root.fullRouteDraft
+            text: "Only these work networks use SSTP; other traffic keeps its normal route."
+            textFormat: Text.PlainText
+            color: root.dim
+            wrapMode: Text.Wrap
+          }
+          TextField {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            Layout.maximumWidth: popup.contentWidth
+            visible: !root.fullRouteDraft
+            placeholderText: "Work networks (CIDR, comma-separated)"
+            text: root.routeText
+            onTextChanged: root.routeText = text
+          }
           RowLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0

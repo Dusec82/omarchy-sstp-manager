@@ -6,14 +6,14 @@ A third-party Quickshell plugin for managing `sstp-client` profiles from the Oma
 
 1. Install dependencies: `sudo pacman -S sstp-client ppp python`.
 2. Install the plugin from its Git repository: `omarchy plugin add https://github.com/Dusec82/omarchy-sstp-manager --enable`.
-3. From the installed plugin checkout, run `sudo ./scripts/install.sh`. This installs the root helper and a Polkit rule restricted to that helper path. Re-run it after plugin updates that change privileged helpers.
+3. From the installed plugin checkout, run `sudo ./scripts/install.sh`. This installs the root helper, narrowly scoped Polkit rule, and PPP up/down hooks used by split routes. Re-run it after plugin updates that change privileged helpers or hooks.
 4. Restart the shell with `omarchy-restart-shell` if the widget does not appear. Use `omarchy bar move org.dusec.sstp-manager --section right` to place it.
 
 The first connection may prompt for administrator authentication through Polkit. Profile files are stored in `~/.config/omarchy/sstp-manager/profiles/` with directory mode `0700` and file mode `0600`. The helper uses the `PKEXEC_UID` account and validates the profile and all forwarded PPP options. Logs are kept under `/run/omarchy-sstp-manager/` until reboot.
 
 ## Использование
 
-Click the SSTP bar icon to add, edit, duplicate, remove, test, connect, and disconnect profiles. The panel shows the current state, assigned IPv4 address (when detected on a `ppp*` interface), uptime, and recent connection log. Enable **Route all traffic through VPN** to use the VPN as the default route. The optional server route, certificate warning, CA file, HTTP proxy, and a curated PPP option set are supported.
+Click the SSTP bar icon to add, edit, duplicate, remove, test, connect, and disconnect profiles. The panel shows the current state, assigned IPv4 address (when detected on a `ppp*` interface), uptime, and recent connection log. For split tunneling, leave **Route all traffic through VPN** unchecked and enter work networks as comma-separated CIDRs, for example `192.168.1.0/24, 10.20.0.0/16`. PPP up/down hooks install these routes on the VPN interface and remove them when it disconnects; all other traffic keeps its existing route. Enable **Route all traffic through VPN** only when the VPN server provides Internet forwarding. The optional server route, certificate warning, CA file, HTTP proxy, and a curated PPP option set are supported.
 
 For troubleshooting, enable **Detailed SSTP/PPP logs** in a profile, reconnect, and watch `tail -F /run/omarchy-sstp-manager/$(id -u).log`. Disable verbose logging after troubleshooting.
 
@@ -31,14 +31,14 @@ Run `omarchy plugin validate .` from the repository root. The helper uses Python
 
 1. Install dependencies: `sudo pacman -S sstp-client ppp python`.
 2. Install from Git: `omarchy plugin add https://github.com/Dusec82/omarchy-sstp-manager --enable`.
-3. From the installed checkout, run `sudo ./scripts/install.sh`. It installs the root helper and narrowly scoped Polkit rule. Re-run after updates to privileged helpers.
+3. From the installed checkout, run `sudo ./scripts/install.sh`. It installs the root helper, narrowly scoped Polkit rule, and PPP up/down route hooks. Re-run after updates to helper or hook scripts.
 4. If the widget does not appear, run `omarchy-restart-shell`. Place it with `omarchy bar move org.dusec.sstp-manager --section right`.
 
 Profile data lives in `~/.config/omarchy/sstp-manager/profiles/`, protected by directory permissions `0700` and file permissions `0600`. Runtime logs are stored in `/run/omarchy-sstp-manager/` and disappear at reboot.
 
 ## Usage
 
-Click the SSTP icon to create, edit, duplicate, delete, test, connect, or disconnect profiles. The panel displays state, the IPv4 address found on a `ppp*` interface, uptime, and recent logs. Enable **Route all traffic through VPN** to use the VPN as the default route. The helper also supports server-route preservation, certificate-warning mode, a CA certificate, HTTP proxy, and a curated set of PPP options.
+Click the SSTP icon to create, edit, duplicate, delete, test, connect, or disconnect profiles. The panel displays state, the IPv4 address found on a `ppp*` interface, uptime, and recent logs. For split tunneling, leave **Route all traffic through VPN** unchecked and enter work networks as comma-separated CIDRs (for example, `192.168.1.0/24`). The installed PPP hooks add those networks to the VPN interface and remove them on disconnect, while ordinary Internet traffic retains its existing route. Use full-tunnel mode only when the VPN server is configured to forward Internet traffic. The helper also supports server-route preservation, certificate-warning mode, a CA certificate, HTTP proxy, and a curated set of PPP options.
 
 For troubleshooting, enable **Detailed SSTP/PPP logs** in the profile, reconnect, and watch `tail -F /run/omarchy-sstp-manager/$(id -u).log`. Turn verbose logging off after troubleshooting.
 

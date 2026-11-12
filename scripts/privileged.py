@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Root helper. Install as /usr/lib/omarchy-sstp-manager/privileged.py."""
+import ipaddress
 import json
 import os
 import pwd
 import re
+import secrets
 import signal
 import subprocess
 import sys
@@ -12,6 +14,8 @@ from pathlib import Path
 
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,48}$")
 STATE_DIR = Path("/run/omarchy-sstp-manager")
+ROUTE_STATE_DIR = STATE_DIR / "routes"
+ROUTE_TOKEN_RE = re.compile(r"^sstpm-([0-9]+)-([A-Za-z0-9_-]{1,48})-([a-f0-9]{24})$")
 ALLOWED_PPP = {"require-mschap-v2", "refuse-eap", "usepeerdns", "defaultroute", "nodefaultroute", "noauth", "noipdefault", "noccp"}
 
 
@@ -23,6 +27,34 @@ def managed_process(pid):
             return stream.read(4096).split(b"\0", 1)[0] == b"/usr/bin/sstpc"
     except (FileNotFoundError, ProcessLookupError, PermissionError):
         return False
+
+
+def normalized_routes(value):
+    if not isinstance(value, list) or len(value) > 32:
+        raise RuntimeError("Split routes must be a list of at most 32 CIDR networks")
+    routes = []
+    for route in value:
+        if not isinstance(route, str) or "/" not in route.strip():
+            raise RuntimeError("Split routes must use CIDR notation, such as 192.168.1.0/24")
+        try:
+            network = ipaddress.ip_network(route.strip(), strict=False)
+        except ValueError as error:
+            raise RuntimeError("Invalid split route: " + str(route)) from error
+        if network.prefixlen == 0:
+            raise RuntimeError("A /0 route would replace the default route; use full-tunnel mode instead")
+        routes.append(str(network))
+    return list(dict.fromkeys(routes))
+
+
+def write_route_state(path, value):
+    temporary = path.with_suffix(".tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        json.dump(value, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+    os.chmod(path, 0o600)
 
 
 def main():
@@ -61,6 +93,12 @@ def main():
         profile = json.load(stream)
     if not isinstance(profile, dict):
         raise RuntimeError("Invalid profile format")
+    route_mode = profile.get("routeMode", "split")
+    if route_mode not in ("split", "full"):
+        raise RuntimeError("Invalid route mode")
+    routes = normalized_routes(profile.get("routes", [])) if route_mode == "split" else []
+    if route_mode == "split" and not routes:
+        raise RuntimeError("Add at least one work network for split tunneling, or enable full-tunnel mode")
     host = str(profile.get("server", ""))
     name = str(profile.get("username", ""))
     secret = str(profile.get("password", ""))
@@ -105,7 +143,7 @@ def main():
     if profile.get("debugLogging") is True:
         args.append("debug")
     args.append("nodetach")
-    if profile.get("routeMode", "split") == "full":
+    if route_mode == "full":
         args.append("defaultroute")
     else:
         args.append("nodefaultroute")
@@ -131,8 +169,33 @@ def main():
             pid_file.unlink(missing_ok=True)
         except ProcessLookupError:
             pid_file.unlink(missing_ok=True)
-    child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=fd, stderr=fd, start_new_session=True, close_fds=True)
+    route_state = None
+    if routes:
+        ROUTE_STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(ROUTE_STATE_DIR, 0o700)
+        route_token = "sstpm-%d-%s-%s" % (uid, ident, secrets.token_hex(12))
+        args.extend(["ipparam", route_token])
+        route_state = ROUTE_STATE_DIR / (route_token + ".json")
+        write_route_state(route_state, {
+            "uid": uid,
+            "profileId": ident,
+            "routes": routes,
+            "sstpcPid": 0,
+            "interface": "",
+            "installed": [],
+        })
+    try:
+        child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=fd, stderr=fd, start_new_session=True, close_fds=True)
+    except Exception:
+        if route_state:
+            route_state.unlink(missing_ok=True)
+        os.close(fd)
+        raise
     os.close(fd)
+    if route_state:
+        route_data = json.loads(route_state.read_text(encoding="utf-8"))
+        route_data["sstpcPid"] = child.pid
+        write_route_state(route_state, route_data)
     pid_file.write_text(str(child.pid))
     os.chmod(pid_file, 0o644)
     state_file.write_text(json.dumps({"state": "connecting", "profileId": ident, "profileName": str(profile.get("name", "SSTP"))[:80], "ip": "", "since": int(time.time()), "message": ""}))
