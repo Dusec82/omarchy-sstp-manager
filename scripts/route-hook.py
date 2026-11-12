@@ -7,7 +7,6 @@ import re
 import subprocess
 import sys
 import syslog
-import time
 from pathlib import Path
 
 STATE_DIR = Path("/run/omarchy-sstp-manager/routes")
@@ -65,25 +64,6 @@ def route_command(action, network, interface):
     )
 
 
-def verify_pppd_group(expected_pid):
-    try:
-        return expected_pid > 0 and os.getpgid(os.getppid()) == expected_pid
-    except (ProcessLookupError, PermissionError):
-        return False
-
-
-def wait_for_state(path):
-    deadline = time.monotonic() + 3
-    while True:
-        value = read_state(path)
-        expected_pid = int(value.get("sstpcPid", 0))
-        if expected_pid:
-            return value
-        if time.monotonic() >= deadline:
-            raise RuntimeError("timed out waiting for SSTP process state")
-        time.sleep(0.1)
-
-
 def main():
     syslog.openlog("sstp-manager-routes", syslog.LOG_PID, syslog.LOG_DAEMON)
     # pppd passes: interface, tty, speed, local IP, remote IP, ipparam.
@@ -99,14 +79,11 @@ def main():
     uid, profile_id = int(match.group(1)), match.group(2)
     state_path = STATE_DIR / (token + ".json")
     try:
-        state = wait_for_state(state_path) if mode == "up" else read_state(state_path)
+        state = read_state(state_path)
     except FileNotFoundError:
         return 0
     if state.get("uid") != uid or state.get("profileId") != profile_id:
         raise RuntimeError("route authorization does not match ipparam")
-    if not verify_pppd_group(int(state.get("sstpcPid", 0))):
-        raise RuntimeError("PPP hook did not originate from this SSTP process group")
-
     if mode == "up":
         state["interface"] = interface
         state["installed"] = []

@@ -180,7 +180,6 @@ def main():
             "uid": uid,
             "profileId": ident,
             "routes": routes,
-            "sstpcPid": 0,
             "interface": "",
             "installed": [],
         })
@@ -192,10 +191,6 @@ def main():
         os.close(fd)
         raise
     os.close(fd)
-    if route_state:
-        route_data = json.loads(route_state.read_text(encoding="utf-8"))
-        route_data["sstpcPid"] = child.pid
-        write_route_state(route_state, route_data)
     pid_file.write_text(str(child.pid))
     os.chmod(pid_file, 0o644)
     state_file.write_text(json.dumps({"state": "connecting", "profileId": ident, "profileName": str(profile.get("name", "SSTP"))[:80], "ip": "", "since": int(time.time()), "message": ""}))

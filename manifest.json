@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "org.dusec.sstp-manager",
   "name": "SSTP Manager",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "dusec",
   "license": "MIT",
   "description": "Graphical manager for sstp-client VPN connections on Omarchy",
