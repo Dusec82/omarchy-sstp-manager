@@ -15,7 +15,7 @@ Profiles are stored in `~/.config/omarchy/sstp-manager/profiles/` with directory
 
 Click the SSTP bar icon to add, edit, duplicate, delete, test, connect, or disconnect profiles. The panel shows connection state, the VPN IPv4 address and interface when detected, DNS, uptime, and recent logs.
 
-For split tunneling, leave **Route all traffic through VPN** unchecked and add work networks as CIDR ranges, for example `192.168.1.0/24` and `10.20.0.0/16`. Add ranges one at a time or enter several separated by commas; spaces alone do not separate them. Use `/32` for one IPv4 host. PPP hooks install these routes on the VPN interface and remove them when it disconnects. Other traffic keeps its normal route. **Check routes** reports whether the configured work routes use PPP and whether Internet traffic follows the selected route mode.
+For split tunneling, leave **Route all traffic through VPN** unchecked and add work networks as CIDR ranges, for example `192.168.1.0/24` and `10.20.0.0/16`. Use `/32` for one IPv4 host. PPP hooks install these routes on the VPN interface and remove them when it disconnects. Other traffic keeps its normal route. **Check routes** reports whether the configured work routes use PPP and whether Internet traffic follows the selected route mode.
 
 Enable **Route all traffic through VPN** only if the VPN server forwards Internet traffic. The profile also supports server-route preservation, TLS hostname extension, certificate warning mode, a CA certificate, an HTTP proxy, detailed connection logs, and a curated set of PPP options. Only port 443 is currently supported by the installed `sstpc` command line; TLS protocol version selection is not exposed.
 
@@ -40,7 +40,7 @@ The helper passes PPP `noauth` for client mode. This disables server authenticat
 
 Нажмите значок SSTP в панели, чтобы добавлять, изменять, дублировать и удалять профили, тестировать соединение, подключаться и отключаться. Панель показывает состояние соединения, IPv4-адрес и интерфейс VPN (если определены), DNS, время работы и журнал.
 
-Для split tunneling оставьте переключатель **Route all traffic through VPN** выключенным и добавьте рабочие сети в формате CIDR, например `192.168.1.0/24` и `10.20.0.0/16`. Подсети можно добавлять по одной или перечислить через запятую; одни пробелы разделителем не являются. Для одного IPv4-хоста используйте `/32`. PPP hooks добавляют маршруты через интерфейс VPN и удаляют их при отключении. Остальной трафик идёт обычным маршрутом. Кнопка **Check routes** показывает, направлены ли рабочие сети через PPP и соответствует ли маршрут в Интернет выбранному режиму.
+Для split tunneling оставьте переключатель **Route all traffic through VPN** выключенным и добавьте рабочие сети в формате CIDR, например `192.168.1.0/24` и `10.20.0.0/16`. Для одного IPv4-хоста используйте `/32`. PPP hooks добавляют маршруты через интерфейс VPN и удаляют их при отключении. Остальной трафик идёт обычным маршрутом. Кнопка **Check routes** показывает, направлены ли рабочие сети через PPP и соответствует ли маршрут в Интернет выбранному режиму.
 
 Включайте **Route all traffic through VPN**, только если VPN-сервер маршрутизирует трафик в Интернет. Профиль также поддерживает сохранение маршрута к серверу, TLS hostname extension, предупреждение о сертификате, CA-сертификат, HTTP proxy, подробные журналы и ограниченный список PPP-параметров. Установленная версия `sstpc` поддерживает только порт 443; выбрать версию TLS через командную строку нельзя.
 
