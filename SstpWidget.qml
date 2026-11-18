@@ -40,7 +40,7 @@ Panel {
   function run(command, args) {
     if (workerPending) return
     workerPending = true
-    busy = command !== "status" && command !== "logs" && command !== "list" && command !== "diagnostics"
+    busy = command !== "status" && command !== "logs" && command !== "list"
     currentOperation = command
     worker.command = ["python3", pluginDir + "/scripts/backend.py", command].concat(args || [])
     worker.running = true
@@ -98,7 +98,11 @@ Panel {
   }
   function connectProfile(id) { selectedId = id; routeDiagnosticsReady = false; run("connect", [id]) }
   function loadLog() { run("logs", []) }
-  function clearLog() { logText = ""; run("clear-logs", []) }
+  function clearLog() {
+    if (workerPending || busy) return
+    logText = ""
+    run("clear-logs", [])
+  }
   function activateOperation(cmd, id) {
     if (cmd === "disconnect") {
       routeDiagnosticsReady = false
@@ -195,7 +199,7 @@ Panel {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Text { text: "SSTP Manager"; textFormat: Text.PlainText; color: root.barForeground; font.pixelSize: 18; font.bold: true; Layout.fillWidth: true }
-            Button { text: "+ Add"; onClicked: root.newProfile() }
+            Button { text: "+ Add"; enabled: !root.busy; onClicked: root.newProfile() }
           }
         Text {
           Layout.fillWidth: true
@@ -208,13 +212,13 @@ Panel {
         Button {
           Layout.minimumWidth: 0
           visible: root.activeStatus.state === "connected" || root.activeStatus.state === "connecting"
-          enabled: !root.busy
+          enabled: !root.busy && !root.workerPending
           text: "Disconnect active profile"
           onClicked: root.activateOperation("disconnect", String(root.activeStatus.profileId || "active"))
         }
         Button {
           visible: root.activeStatus.state === "connected"
-          enabled: !root.busy
+          enabled: !root.busy && !root.workerPending
           text: "Check routes"
           onClicked: { root.message = ""; root.routeDiagnosticsReady = false; root.run("diagnostics", []) }
         }
@@ -296,8 +300,8 @@ Panel {
                   Text { Layout.fillWidth: true; Layout.minimumWidth: 0; textFormat: Text.PlainText; text: modelData.name; elide: Text.ElideRight; color: root.barForeground; font.bold: true }
                   Text { Layout.fillWidth: true; Layout.minimumWidth: 0; textFormat: Text.PlainText; text: modelData.server + ":" + modelData.port; elide: Text.ElideRight; color: root.dim; font.pixelSize: 12 }
                 }
-                Button { text: root.activeStatus.profileId === modelData.id && (root.activeStatus.state === "connected" || root.activeStatus.state === "connecting") ? "Disconnect" : "Connect"; enabled: !root.busy; onClicked: root.activeStatus.profileId === modelData.id && (root.activeStatus.state === "connected" || root.activeStatus.state === "connecting") ? root.activateOperation("disconnect", modelData.id) : root.connectProfile(modelData.id) }
-                ToolButton { text: "⋯"; onClicked: root.editProfile(modelData) }
+                Button { text: root.activeStatus.profileId === modelData.id && (root.activeStatus.state === "connected" || root.activeStatus.state === "connecting") ? "Disconnect" : "Connect"; enabled: !root.busy && !root.workerPending; onClicked: root.activeStatus.profileId === modelData.id && (root.activeStatus.state === "connected" || root.activeStatus.state === "connecting") ? root.activateOperation("disconnect", modelData.id) : root.connectProfile(modelData.id) }
+                ToolButton { text: "⋯"; enabled: !root.busy; onClicked: root.editProfile(modelData) }
               }
             }
           }
@@ -410,8 +414,8 @@ Panel {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.maximumWidth: popup.contentWidth
-            Button { text: "Save"; enabled: !root.busy; onClicked: root.saveProfile() }
-            Button { text: "Test connection"; enabled: !root.busy && root.selectedId !== ""; onClicked: root.activateOperation("test", root.selectedId) }
+            Button { text: "Save"; enabled: !root.busy && !root.workerPending; onClicked: root.saveProfile() }
+            Button { text: "Test connection"; enabled: !root.busy && !root.workerPending && root.selectedId !== ""; onClicked: root.activateOperation("test", root.selectedId) }
             Button { text: "Cancel"; onClicked: root.editing = false }
           }
           RowLayout {
@@ -419,16 +423,16 @@ Panel {
             Layout.minimumWidth: 0
             Layout.maximumWidth: popup.contentWidth
             visible: root.selectedId !== ""
-            Button { text: "Duplicate"; onClicked: root.run("duplicate", [root.selectedId, "p" + Date.now().toString(36)]) }
-            Button { text: "Delete"; onClicked: root.run("delete", [root.selectedId]) }
+            Button { text: "Duplicate"; enabled: !root.busy && !root.workerPending; onClicked: root.run("duplicate", [root.selectedId, "p" + Date.now().toString(36)]) }
+            Button { text: "Delete"; enabled: !root.busy && !root.workerPending; onClicked: root.run("delete", [root.selectedId]) }
           }
         }
 
         RowLayout {
           Layout.fillWidth: true
           Layout.minimumWidth: 0
-          Button { text: "Refresh"; onClicked: { root.refresh(); statusTimer.restart() } }
-          Button { text: "View log"; onClicked: { root.showLog = !root.showLog; if (root.showLog) root.loadLog() } }
+          Button { text: "Refresh"; enabled: !root.busy && !root.workerPending; onClicked: { root.refresh(); statusTimer.restart() } }
+          Button { text: "View log"; enabled: !root.busy && !root.workerPending; onClicked: { root.showLog = !root.showLog; if (root.showLog) root.loadLog() } }
           Button {
             text: "Copy profiles folder path"
             onClicked: {
@@ -442,7 +446,7 @@ Panel {
           Layout.fillWidth: true
           Layout.minimumWidth: 0
           Text { text: "Connection log"; color: root.dim; Layout.fillWidth: true }
-          Button { text: "Clear log"; enabled: !root.busy; onClicked: root.clearLog() }
+          Button { text: "Clear log"; enabled: !root.busy && !root.workerPending; onClicked: root.clearLog() }
         }
         TextArea {
           Layout.fillWidth: true
