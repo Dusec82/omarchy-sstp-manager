@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from chap_secrets import install_secret, remove_profile_secrets, remove_secret
 
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,48}$")
 STATE_DIR = Path("/run/omarchy-sstp-manager")
@@ -77,6 +78,7 @@ def main():
             pid_file.unlink(missing_ok=True)
         except (FileNotFoundError, ProcessLookupError, ValueError):
             pid_file.unlink(missing_ok=True)
+        remove_profile_secrets(uid, ident)
         state_file.write_text(json.dumps({"state": "disconnected", "profileId": "", "profileName": "", "ip": "", "pppInterface": "", "splitRoutes": [], "installedRoutes": [], "routeErrors": [], "since": 0, "message": ""}))
         os.chmod(state_file, 0o644)
         print("Disconnected")
@@ -113,7 +115,6 @@ def main():
     args = ["/usr/bin/sstpc", "--log-stderr"]
     if profile.get("debugLogging") is True:
         args.extend(["--log-level", "4"])
-    args.extend(["--user", name, "--password", secret])
     if profile.get("tlsExt") is True:
         args.append("--tls-ext")
     if profile.get("certWarn") is True:
@@ -131,6 +132,8 @@ def main():
     if profile.get("saveServerRoute", True) is True:
         args.append("--save-server-route")
     args.append(host)
+    route_token = "sstpm-%d-%s-%s" % (uid, ident, secrets.token_hex(12))
+    args.extend(["name", name, "remotename", route_token])
     opts = profile.get("pppOptions", []) if isinstance(profile.get("pppOptions", []), list) else []
     for option in opts:
         if option in ALLOWED_PPP:
@@ -153,12 +156,14 @@ def main():
     os.fchmod(fd, 0o600)
     if op == "test":
         try:
+            install_secret(route_token, name, secret)
             test_args = [arg for arg in args if arg != "defaultroute"]
             if "nodefaultroute" not in test_args:
                 test_args.append("nodefaultroute")
             completed = subprocess.run(["/usr/bin/timeout", "12"] + test_args, stdin=subprocess.DEVNULL, stdout=fd, stderr=fd, timeout=15, check=False, start_new_session=True)
             print("SSTP stayed active for 12 seconds; inspect the log for PPP details" if completed.returncode == 124 else "SSTP test completed" if completed.returncode == 0 else "SSTP test failed; see log")
         finally:
+            remove_secret(route_token)
             os.close(fd)
         return
     if pid_file.exists():
@@ -171,7 +176,6 @@ def main():
             pid_file.unlink(missing_ok=True)
     ROUTE_STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(ROUTE_STATE_DIR, 0o700)
-    route_token = "sstpm-%d-%s-%s" % (uid, ident, secrets.token_hex(12))
     args.extend(["ipparam", route_token])
     route_state = ROUTE_STATE_DIR / (route_token + ".json")
     write_route_state(route_state, {
@@ -184,8 +188,10 @@ def main():
         "errors": [],
     })
     try:
+        install_secret(route_token, name, secret)
         child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=fd, stderr=fd, start_new_session=True, close_fds=True)
     except Exception:
+        remove_secret(route_token)
         route_state.unlink(missing_ok=True)
         os.close(fd)
         raise
@@ -196,6 +202,7 @@ def main():
     os.chmod(state_file, 0o644)
     time.sleep(0.7)
     if child.poll() is not None:
+        remove_secret(route_token)
         pid_file.unlink(missing_ok=True)
         route_state.unlink(missing_ok=True)
         raise RuntimeError("sstpc exited during startup; see connection log")

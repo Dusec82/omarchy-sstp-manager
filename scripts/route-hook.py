@@ -8,6 +8,7 @@ import subprocess
 import sys
 import syslog
 from pathlib import Path
+from chap_secrets import remove_secret
 
 STATE_DIR = Path("/run/omarchy-sstp-manager/routes")
 RUNTIME_DIR = STATE_DIR.parent
@@ -147,6 +148,7 @@ def main():
             detail = (result.stderr or result.stdout).strip()[:240]
             log(syslog.LOG_WARNING, "could not remove %s dev %s: %s" % (network, interface, detail))
     update_runtime(uid, profile_id, {"pppInterface": "", "installedRoutes": []})
+    remove_secret(token)
     state_path.unlink(missing_ok=True)
     return 0
 

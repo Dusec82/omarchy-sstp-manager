@@ -141,8 +141,11 @@ def run():
                 continue
         print(json.dumps(rows))
     elif command == "save":
-        ident = sys.argv[2] if len(sys.argv) > 2 else ""
-        data = valid_profile(json.loads(sys.argv[3]))
+        payload = json.loads(sys.stdin.readline())
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid profile payload")
+        ident = str(payload.get("id", ""))
+        data = valid_profile(payload.get("profile", {}))
         target = profile_path(ident)
         if not data.get("password") and target.exists():
             previous = read_profile(target)

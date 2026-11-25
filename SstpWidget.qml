@@ -30,6 +30,7 @@ Panel {
   property bool routeDiagnosticsReady: false
   property string message: ""
   property string currentOperation: ""
+  property string pendingInput: ""
   property var draft: ({ id: "", name: "", server: "", port: 443, username: "", password: "", certWarn: false, saveServerRoute: true, proxy: "", tlsVersion: "default", caCert: "", routeMode: "split", routes: [], pppOptions: ["require-mschap-v2", "refuse-eap", "usepeerdns", "noauth"], debugLogging: false, tlsExt: false })
   readonly property string pluginDir: Quickshell.env("HOME") + "/.config/omarchy/plugins/" + String(manifest.id || "org.dusec.sstp-manager")
   readonly property color dim: Qt.darker(barForeground, 1.6)
@@ -37,11 +38,12 @@ Panel {
   implicitWidth: barButton.implicitWidth
   implicitHeight: barButton.implicitHeight
 
-  function run(command, args) {
+  function run(command, args, input) {
     if (workerPending) return
     workerPending = true
     busy = command !== "status" && command !== "logs" && command !== "list"
     currentOperation = command
+    pendingInput = input || ""
     worker.command = ["python3", pluginDir + "/scripts/backend.py", command].concat(args || [])
     worker.running = true
   }
@@ -94,7 +96,7 @@ Panel {
     draft.id = id
     draft.routeMode = fullRouteDraft ? "full" : "split"
     draft.routes = routeTokens.slice()
-    run("save", [id, JSON.stringify(draft)])
+    run("save", [], JSON.stringify({ id: id, profile: draft }) + "\n")
   }
   function connectProfile(id) { selectedId = id; routeDiagnosticsReady = false; run("connect", [id]) }
   function loadLog() { run("logs", []) }
@@ -115,8 +117,15 @@ Panel {
   Process {
     id: worker
     command: []
+    stdinEnabled: true
     stdout: StdioCollector { id: workerOut; waitForEnd: true }
     stderr: StdioCollector { id: workerErr; waitForEnd: true }
+    onStarted: {
+      if (root.currentOperation === "save") {
+        write(root.pendingInput)
+        root.pendingInput = ""
+      }
+    }
     onExited: function(code) {
       var output = String(workerOut.text || "").trim()
       var errorText = String(workerErr.text || "").trim()
